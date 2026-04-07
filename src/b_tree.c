@@ -37,32 +37,85 @@ typedef struct {
   int flush;                    /* Should I flush sector[0] to disk after b_tree_insert() */
 } B_Tree;
 
+
+static Tree_Node *tree_node_create(B_Tree *tree, char internal) 
+{
+  Tree_Node *node;
+
+  if (tree->free_list != NULL) {
+    node = tree->free_list;
+    tree->free_list = node->ptr; // move free list forward
+  } else {
+    node = malloc(sizeof(Tree_Node));
+    node->keys = malloc(sizeof(unsigned char *) * (tree->keys_per_block + 1));
+    node->lbas = malloc(sizeof(unsigned int) * (tree->lbas_per_block + 1));
+
+    for (int i = 0; i < tree->keys_per_block + 1; i++) {
+      node->keys[i] = node->bytes + 2 + i * tree->key_size;
+    }
+  }
+
+  node->lba = tree->first_free_block;
+  tree->first_free_block++;
+  tree->flush = 1;
+
+  node->nkeys = 0;
+  node->internal = internal;
+  node->flush = 1;
+  node->parent = NULL;
+  node->parent_index = -1;
+
+  return node;
+}
+
+void write_and_free(B_Tree *tree, Tree_Node *node) 
+{
+  if (node->flush) {
+    node->bytes[0] = node->internal;
+    node->bytes[1] = node->nkeys;
+    memcpy(node->bytes + JDISK_SECTOR_SIZE - (tree->keys_per_block + 1) * 4, 
+           node->lbas, 
+           (tree->keys_per_block + 1) * 4);
+    jdisk_write(tree->disk, node->lba, node->bytes);
+  }
+
+  node->ptr = tree->free_list;
+  tree->free_list = node; 
+}
+
+void write_header(B_Tree *tree) 
+{
+  unsigned char buf[JDISK_SECTOR_SIZE];
+  memcpy(buf, tree, 16);
+  jdisk_write(tree->disk, 0, buf);
+}
+
 // This creates an empty btree with the given file size, key_size and filename. 
 // The empty btree will have a root node which is external and has zero keys. 
 // It returns a handle to the btree in a void *.
 void *b_tree_create(char *filename, long size, int key_size) 
 {
   int MAXKEY = (JDISK_SECTOR_SIZE - 6) / (key_size + 4);
-  B_Tree *bt = (B_Tree *) malloc(sizeof(B_Tree));
+  B_Tree *tree = (B_Tree *) malloc(sizeof(B_Tree));
 
-  bt->key_size = key_size;
-  bt->root_lba = 1;
-  bt->first_free_block = 1;
+  tree->key_size = key_size;
+  tree->root_lba = 1;
+  tree->first_free_block = 1;
 
-  bt->disk = jdisk_create(filename, size);
-  bt->size = size
-  bt->num_lbas = size / JDISK_SECTOR_SIZE;
-  bt->keys_per_block = MAXKEY;
-  bt->lbas_per_block = MAXKEY + 1;
-  bt->free_list = NULL;
+  tree->disk = jdisk_create(filename, size);
+  tree->size = size;
+  tree->num_lbas = size / JDISK_SECTOR_SIZE;
+  tree->keys_per_block = MAXKEY;
+  tree->lbas_per_block = MAXKEY + 1;
+  tree->free_list = NULL;
 
   Tree_Node *root = tree_node_create(tree, 0);
-  // something to free & write to disk
+  write_and_free(tree, root);
 
-  // something to write header to sector 0
-  bt->flush = 0;
+  write_header(tree);
+  tree->flush = 0;
 
-  return (void *) bt;
+  return (void *) tree;
 }
 
 // This opens the given btree file, which should have been created previously with b_tree_create(). 
@@ -112,33 +165,4 @@ void b_tree_print_tree(void *b_tree)
   B_Tree *tree = (B_Tree *) b_tree;
 
   return;
-}
-
-static Tree_Node *tree_node_create(B_Tree *tree, char internal) {
-  Tree_Node *node;
-
-  if (tree->free_list != NULL) {
-    node = tree->free_list;
-    tree->free_list = node->ptr; // move free list forward
-  } else {
-    node = malloc(sizeof(Tree_Node));
-    node->keys = malloc(sizeof(unsigned char *) * (tree->keys_per_block + 1));
-    node->lbas = malloc(sizeof(unsigned int) * (tree->lbas_per_block + 1));
-
-    for (int i = 0; i < tree->keys_per_block + 1; i++) {
-      node->keys[i] = node->bytes + 2 + i * tree->key_size;
-    }
-  }
-
-  node->lba = tree->first_free_block;
-  tree->first_free_block++;
-  tree->flush = 1;
-
-  node->nkeys = 0;
-  node->internal = internal;
-  node->flush = 1;
-  node->parent = NULL;
-  node->parent_index = -1;
-
-  return node;
 }
