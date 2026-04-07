@@ -47,16 +47,19 @@ void *b_tree_create(char *filename, long size, int key_size)
 
   bt->key_size = key_size;
   bt->root_lba = 1;
-  bt->first_free_block = 2;
+  bt->first_free_block = 1;
 
   bt->disk = jdisk_create(filename, size);
-  bt->size = jdisk_size(bt->disk);
-  bt->num_lbas = bt->size / JDISK_SECTOR_SIZE;
+  bt->size = size
+  bt->num_lbas = size / JDISK_SECTOR_SIZE;
   bt->keys_per_block = MAXKEY;
   bt->lbas_per_block = MAXKEY + 1;
   bt->free_list = NULL;
-  bt->tmp_e = NULL;
-  bt->tmp_e_index = 0;
+
+  Tree_Node *root = tree_node_create(tree, 0);
+  // something to free & write to disk
+
+  // something to write header to sector 0
   bt->flush = 0;
 
   return (void *) bt;
@@ -106,10 +109,36 @@ int b_tree_key_size(void *b_tree)
 // I'm not going to grade you on this. This can be a very useful procedure for debugging.
 void b_tree_print_tree(void *b_tree) 
 {
+  B_Tree *tree = (B_Tree *) b_tree;
+
   return;
 }
 
-Tree_Node *allocate_tree_node(B_Tree *tree, char internal) {
-  Tree_Node *tn = malloc(sizeof(Tree_Node));
+static Tree_Node *tree_node_create(B_Tree *tree, char internal) {
+  Tree_Node *node;
 
+  if (tree->free_list != NULL) {
+    node = tree->free_list;
+    tree->free_list = node->ptr; // move free list forward
+  } else {
+    node = malloc(sizeof(Tree_Node));
+    node->keys = malloc(sizeof(unsigned char *) * (tree->keys_per_block + 1));
+    node->lbas = malloc(sizeof(unsigned int) * (tree->lbas_per_block + 1));
+
+    for (int i = 0; i < tree->keys_per_block + 1; i++) {
+      node->keys[i] = node->bytes + 2 + i * tree->key_size;
+    }
+  }
+
+  node->lba = tree->first_free_block;
+  tree->first_free_block++;
+  tree->flush = 1;
+
+  node->nkeys = 0;
+  node->internal = internal;
+  node->flush = 1;
+  node->parent = NULL;
+  node->parent_index = -1;
+
+  return node;
 }
