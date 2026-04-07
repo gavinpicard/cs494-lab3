@@ -38,7 +38,7 @@ typedef struct {
 } B_Tree;
 
 
-static Tree_Node *tree_node_create(B_Tree *tree, char internal) 
+Tree_Node *obtain_node(B_Tree *tree) 
 {
   Tree_Node *node;
 
@@ -55,6 +55,13 @@ static Tree_Node *tree_node_create(B_Tree *tree, char internal)
     }
   }
 
+  return node;
+}
+
+Tree_Node *tree_node_create(B_Tree *tree, char internal) 
+{
+  Tree_Node *node = obtain_node(tree);
+
   node->lba = tree->first_free_block;
   tree->first_free_block++;
   tree->flush = 1;
@@ -62,6 +69,26 @@ static Tree_Node *tree_node_create(B_Tree *tree, char internal)
   node->nkeys = 0;
   node->internal = internal;
   node->flush = 1;
+  node->parent = NULL;
+  node->parent_index = -1;
+
+  return node;
+}
+
+Tree_Node *read_tree_node(B_Tree *tree, unsigned int lba) 
+{
+  Tree_Node *node = obtain_node(tree);
+
+  jdisk_read(tree->disk, lba, node->bytes);
+
+  node->internal = node->bytes[0];
+  node->nkeys = node->bytes[1];
+  memcpy(node->lbas,
+         node->bytes + JDISK_SECTOR_SIZE - (tree->keys_per_block + 1) * 4,
+        (tree->keys_per_block + 1) * 4);
+
+  node->lba = lba;
+  node->flush = 0;
   node->parent = NULL;
   node->parent_index = -1;
 
@@ -81,7 +108,7 @@ void write_and_free(B_Tree *tree, Tree_Node *node)
 
   node->ptr = tree->free_list;
   tree->free_list = node; 
-}
+} 
 
 void write_header(B_Tree *tree) 
 {
@@ -96,7 +123,7 @@ void write_header(B_Tree *tree)
 void *b_tree_create(char *filename, long size, int key_size) 
 {
   int MAXKEY = (JDISK_SECTOR_SIZE - 6) / (key_size + 4);
-  B_Tree *tree = (B_Tree *) malloc(sizeof(B_Tree));
+  B_Tree *tree = malloc(sizeof(B_Tree));
 
   tree->key_size = key_size;
   tree->root_lba = 1;
@@ -122,7 +149,24 @@ void *b_tree_create(char *filename, long size, int key_size)
 // Again, it returns a handle to the btree.
 void *b_tree_attach(char *filename) 
 {
-  return NULL;
+  unsigned char buf[JDISK_SECTOR_SIZE];
+  void *disk = jdisk_attach(filename);
+  jdisk_read(disk, 0, buf);
+
+  B_Tree *tree = malloc(sizeof(B_Tree));
+  memcpy(tree, buf, 16);
+
+  int MAXKEY = (JDISK_SECTOR_SIZE - 6) / (tree->key_size + 4);
+
+  tree->disk = disk;
+  tree->size = jdisk_size(disk);
+  tree->num_lbas = tree->size / JDISK_SECTOR_SIZE;
+  tree->keys_per_block = MAXKEY;
+  tree->lbas_per_block = MAXKEY + 1;
+  tree->free_list = NULL;
+  tree->flush = 0;
+
+  return (void *) tree;
 }
 
 // In this procedure, key is a pointer to key_size bytes, and record is a pointer to JDISK_SECTOR_SIZE bytes. 
