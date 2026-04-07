@@ -4,6 +4,21 @@
 #include "stdio.h"
 #include "string.h"
 
+typedef struct tnode {
+  unsigned char bytes[JDISK_SECTOR_SIZE+256]; /* This holds the sector for reading and writing.  
+                                                 It has extra room because your internal representation  
+                                                 will hold an extra key. */
+  unsigned char nkeys;                      /* Number of keys in the node */
+  unsigned char flush;                      /* Should I flush this to disk at the end of b_tree_insert()? */
+  unsigned char internal;                   /* Internal or external node */
+  unsigned int lba;                         /* LBA when the node is flushed */
+  unsigned char **keys;                     /* Pointers to the keys.  Size = MAXKEY+1 */
+  unsigned int *lbas;                       /* Pointer to the array of LBA's.  Size = MAXKEY+2 */
+  struct tnode *parent;                     /* Pointer to my parent -- useful for splitting */
+  int parent_index;                         /* My index in my parent */
+  struct tnode *ptr;                        /* Free list link */
+} Tree_Node;
+
 typedef struct {
   int key_size;                 /* These are the first 16/12 bytes in sector 0 */
   unsigned int root_lba;
@@ -22,27 +37,12 @@ typedef struct {
   int flush;                    /* Should I flush sector[0] to disk after b_tree_insert() */
 } B_Tree;
 
-typedef struct tnode {
-  unsigned char bytes[JDISK_SECTOR_SIZE+256]; /* This holds the sector for reading and writing.  
-                                                 It has extra room because your internal representation  
-                                                 will hold an extra key. */
-  unsigned char nkeys;                      /* Number of keys in the node */
-  unsigned char flush;                      /* Should I flush this to disk at the end of b_tree_insert()? */
-  unsigned char internal;                   /* Internal or external node */
-  unsigned int lba;                         /* LBA when the node is flushed */
-  unsigned char **keys;                     /* Pointers to the keys.  Size = MAXKEY+1 */
-  unsigned int *lbas;                       /* Pointer to the array of LBA's.  Size = MAXKEY+2 */
-  struct tnode *parent;                     /* Pointer to my parent -- useful for splitting */
-  int parent_index;                         /* My index in my parent */
-  struct tnode *ptr;                        /* Free list link */
-} Tree_Node;
-
 // This creates an empty btree with the given file size, key_size and filename. 
 // The empty btree will have a root node which is external and has zero keys. 
 // It returns a handle to the btree in a void *.
 void *b_tree_create(char *filename, long size, int key_size) 
 {
-  int MAXKEY = (JDISK_SECTOR_SIZE - 6) / (key_size + 4)
+  int MAXKEY = (JDISK_SECTOR_SIZE - 6) / (key_size + 4);
   B_Tree *bt = (B_Tree *) malloc(sizeof(B_Tree));
 
   bt->key_size = key_size;
@@ -73,7 +73,8 @@ void *b_tree_attach(char *filename)
 // If the key is in the btree, then the procedure replaces the val with record, and returns the LBA of the val. 
 // If the key is not in the btree, then it is inserted, and the val for that key is set to record. 
 // In either case, the LBA of the val is returned. It will return 0 if our file is out of room.
-// When this returns, the btree file is in the proper shape (in other words, jdisk_write() calls need to be made for all of the sectors that have been added or changed).
+// When this returns, the btree file is in the proper shape (in other words, jdisk_write() 
+// calls need to be made for all of the sectors that have been added or changed).
 //
 // I want to stress here that even though our examples above used null-terminated strings as keys, 
 // our btrees can take any keys that are key_size bytes. Use memcmp() for key comparison. (And use memcpy() to copy keys and vals to their respective homes if need be).
@@ -92,13 +93,13 @@ unsigned int b_tree_find(void *b_tree, void *key)
 // This returns the jdisk pointer for the btree.
 void *b_tree_disk(void *b_tree) 
 {
-  return NULL;
+  return ((B_Tree *) b_tree)->disk;
 }
 
 // This returns the key size.
 int b_tree_key_size(void *b_tree) 
 {
-  return 0;
+  return ((B_Tree *) b_tree)->key_size;
 }
 
 // This prints the tree -- see my examples for format. 
@@ -106,4 +107,9 @@ int b_tree_key_size(void *b_tree)
 void b_tree_print_tree(void *b_tree) 
 {
   return;
+}
+
+Tree_Node *allocate_tree_node(B_Tree *tree, char internal) {
+  Tree_Node *tn = malloc(sizeof(Tree_Node));
+
 }
